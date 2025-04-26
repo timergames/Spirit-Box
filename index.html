@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Adjusted Static Spirit Box Simulator</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background-color: #1a1a1a;
+            color: #00ff00; /* Classic spirit box green text */
+            font-family: 'Courier New', Courier, monospace;
+            overflow: hidden;
+            margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        h1 {
+            margin-bottom: 20px;
+            color: #00cc00;
+            text-shadow: 0 0 5px #00ff00;
+            text-align: center;
+        }
+
+        #spirit-box {
+            border: 2px solid #00ff00;
+            padding: 20px;
+            box-shadow: 0 0 10px #00ff00;
+            text-align: center;
+            min-width: 300px;
+            max-width: 90%;
+            min-height: 180px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-around;
+            align-items: center;
+            background-color: #000000;
+            margin-bottom: 20px;
+        }
+
+        #display-word {
+            font-size: 2em;
+            margin-bottom: 10px;
+            min-height: 2em;
+            word-wrap: break-word;
+            max-width: 100%;
+        }
+
+         #current-status {
+             font-size: 1em;
+             color: #00ffff; /* Cyan for status */
+             min-height: 1em;
+             margin-bottom: 5px;
+         }
+
+        #sensor-status {
+            font-size: 0.8em;
+            color: #009900;
+            min-height: 1em;
+            margin-bottom: 10px;
+        }
+
+        button {
+            background-color: #00cc00;
+            color: #1a1a1a;
+            border: none;
+            padding: 10px 20px;
+            font-size: 1em;
+            font-family: 'Courier New', Courier, monospace;
+            cursor: pointer;
+            box-shadow: 0 0 5px #00ff00;
+            transition: background-color 0.3s ease;
+            margin-top: 10px;
+        }
+
+        button:hover:not(:disabled) {
+            background-color: #00ff00;
+            box-shadow: 0 0 15px #00ff00;
+        }
+
+        button:active:not(:disabled) {
+            background-color: #009900;
+            box-shadow: none;
+        }
+
+        button:disabled {
+            background-color: #333;
+            color: #666;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+         #permission-prompt {
+             margin-top: 20px;
+             text-align: center;
+             font-size: 0.9em;
+             color: #ffcc00;
+         }
+    </style>
+</head>
+<body>
+
+    <h1>Adjusted Static Spirit Box Simulator</h1>
+
+    <div id="spirit-box">
+        <div id="display-word">- - -</div>
+         <div id="current-status">Idle</div>
+         <div id="sensor-status">Sensor: N/A</div>
+        <button id="toggle-box">Start Box</button>
+    </div>
+
+     <div id="permission-prompt" style="display: none;">
+         Tap "Grant Sensor Permission" if prompted by your browser to enable sensor influence. This feature may require HTTPS.
+     </div>
+
+    <script>
+        const displayWord = document.getElementById('display-word');
+        const toggleButton = document.getElementById('toggle-box');
+        const currentStatus = document.getElementById('current-status');
+        const sensorStatus = document.getElementById('sensor-status');
+        const permissionPrompt = document.getElementById('permission-prompt');
+
+        let isRunning = false;
+        let spiritBoxTimeout; // Controls the delay between cycles
+        let sensorDataAvailable = false;
+        let lastAlpha = null;
+        const ALPHA_CHANGE_THRESHOLD = 5; // Degrees change to trigger potential influence
+        const INFLUENCE_DURATION = 2000; // How long influence state lasts (ms)
+        let influenceActive = false;
+        let influenceTimeout;
+
+        // Web Audio API for static noise
+        let audioContext;
+        let noiseBuffer;
+        let noiseSource;
+        let staticGainNode; // Node to control static volume
+        const MAX_STATIC_BUFFER_SEC = 8; // Max buffer length in seconds (longer than max gap) - Increased slightly
+        const SAMPLE_RATE = 44100; // Standard audio sample rate
+        const STATIC_VOLUME = 0.15; // Volume level for static (0.0 to 1.0)
+
+        // --- Word Lists (Expanded) ---
+        const wordList = [
+            "abandoned", "afraid", "afterlife", "agony", "alone", "angry", "anxiety", "appear",
+            "ashes", "attack", "away", "bad", "basement", "beg", "beneath", "beware", "bleed",
+            "blind", "blood", "bones", "broken", "buried", "burn", "can't", "captive", "cemetery",
+            "chains", "chilling", "cold", "come", "cries", "crossroads", "cursed", "cut", "danger",
+            "dark", "dead", "death", "decay", "demon", "departed", "devil", "died", "disease",
+            "disappear", "doorway", "down", "dragged", "dream", "drowning", "earth", "echo",
+            "elevator", "empty", "enemy", "entity", "entrance", "evil", "execution", "exit",
+            "eyes", "fade", "fall", "family", "fear", "fell", "flesh", "floor", "follow", "forgotten",
+            "found", "free", "fright", "gate", "get", "ghost", "gone", "grave", "grief", "ground",
+            "hanged", "haunted", "hear", "heaven", "hell", "help", "hidden", "hide", "him", "his",
+            "hole", "home", "horror", "hospital", "hostile", "house", "hurt", "i", "imprisoned",
+            "inside", "jail", "jumped", "killed", "knock", "labyrinth", "last", "left", "legend",
+            "less", "level", "lie", "light", "listen", "living", "long", "lost", "lower", "lurking",
+            "mad", "malevolent", "mansion", "me", "memory", "mine", "missing", "moans", "monster",
+            "moonlight", "more", "mother", "murder", "museum", "my", "myself", "near", "needs",
+            "never", "night", "no", "noise", "north", "now", "obey", "old", "open", "other", "out",
+            "outside", "pain", "past", "path", "phantom", "pit", "plane", "poltergeist", "poor",
+            "possession", "pray", "presence", "prison", "pulled", "punished", "push", "put", "puzzle",
+            "raging", "rain", "reek", "remember", "restless", "return", "revenge", "ritual", "room",
+            "rot", "ruins", "rules", "run", "save", "scared", "scream", "secrets", "see", "shadow",
+            "shrieks", "sick", "silent", "sister", "sleep", "smell", "smoke", "snake", "sorrow",
+            "soul", "sound", "south", "spirit", "spooky", "staircase", "stay", "steal", "sticks",
+            "stones", "stop", "strangled", "suffering", "suicide", "sunken", "supernatural", "swamp",
+            "taken", "tears", "tell", "terror", "them", "then", "there", "they", "thing", "thirsty",
+            "this", "those", "threat", "through", "throw", "time", "tired", "toll", "tomorrow",
+            "torture", "tower", "trap", "trapped", "tunnel", "turn", "underground", "unhappy",
+            "unknown", "unseen", "up", "upper", "us", "veil", "victim", "voices", "void", "walls",
+            "wander", "want", "warn", "warning", "watch", "water", "we", "west", "when", "where",
+            "whispers", "white", "who", "why", "wicked", "widow", "wife", "wind", "window", "witch",
+            "witness", "world", "worms", "wound", "yell", "yes", "yesterday", "you", "your", "yours",
+            "zone", "cries", "begging", "lurking", "hiding", "watching", "waiting", "lost", "found",
+            "taken", "left", "came", "went", "see me", "hear me", "help us", "let go", "get out",
+            "it hurts", "i'm cold", "i'm here", "who are you", "what do you want", "leave now",
+            "be quiet", "speak now", "show yourself", "we are watching", "they know", "don't touch",
+            "don't go", "stay here", "follow me", "find them", "save her", "save him", "run away",
+            "behind you", "underneath", "above us", "below ground", "next to you", "far away",
+            "close by", "right here", "over there", "in the wall", "in the floor", "in the ceiling",
+            "in the dark", "in the light", "long ago", "right now", "soon", "later", "forever",
+            "nevermore", "always here", "not alone", "many", "few", "one", "two", "three", "four",
+            "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen",
+            "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty", "hundred", "thousand",
+            "million", "first", "second", "third", "last", "next", "previous", "age", "years", "days",
+            "hours", "minutes", "seconds", "morning", "afternoon", "evening", "night", "midnight",
+            "sunrise", "sunset", "today", "tomorrow", "yesterday", "monday", "tuesday", "wednesday",
+            "thursday", "friday", "saturday", "sunday", "january", "february", "march", "april",
+            "may", "june", "july", "august", "september", "october", "november", "december",
+            "winter", "spring", "summer", "autumn", "season", "weather", "rain", "snow", "wind",
+            "storm", "thunder", "lightning", "fog", "mist", "cold", "hot", "warm", "cool", "breeze",
+            "still", "moving", "fast", "slow", "quick", "rapid", "sudden", "gradual", "loud", "quiet",
+            "silent", "whisper", "shout", "scream", "moan", "cry", "laugh", "sing", "talk", "speak",
+            "listen", "hear", "see", "look", "watch", "observe", "feel", "touch", "sense", "know",
+            "think", "believe", "doubt", "understand", "learn", "teach", "guide", "follow", "lead",
+            "wander", "walk", "run", "crawl", "fly", "swim", "float", "sink", "rise", "fall", "stand",
+            "sit", "lie", "kneel", "point", "gesture", "manifest", "appear", "vanish", "dissipate",
+            "form", "shape", "light", "darkness", "shadow", "reflection", "energy", "vibration",
+            "frequency", "dimension", "realm", "world", "plane", "level", "layer", "beyond", "across",
+            "through", "into", "out of", "within", "without", "inside", "outside", "here", "there",
+            "everywhere", "nowhere", "somewhere", "anywhere", "this way", "that way", "left", "right",
+            "up", "down", "forward", "backward", "near", "far", "close", "distant", "above", "below",
+            "under", "over", "between", "among", "beside", "behind", "in front of", "on top of",
+            "underneath", "around", "throughout", "midst", "edge", "center", "side", "corner",
+            "room", "hallway", "stairwell", "attic", "basement", "cellar", "closet", "cupboard",
+            "drawer", "box", "container", "object", "item", "thing", "stuff", "something", "nothing",
+            "everything", "anything", "someone", "anyone", "nobody", "everybody", "ghost", "spirit",
+            "entity", "presence", "apparition", "phantom", "specter", "demon", "angel", "guide",
+            "watcher", "guardian", "occupant", "resident", "visitor", "intruder", "stranger",
+            "family", "mother", "father", "child", "son", "daughter", "brother", "sister", "grandparent",
+            "relative", "ancestor", "friend", "enemy", "lover", "stranger", "person", "man", "woman",
+            "boy", "girl", "baby", "adult", "elderly", "young", "old", "new", "dead", "alive", "lost",
+            "found", "missing", "present", "absent", "visible", "invisible", "heard", "unheard",
+            "felt", "unfelt", "known", "unknown", "seen", "unseen", "touchable", "untouchable",
+            "real", "unreal", "true", "false", "good", "bad", "evil", "wicked", "kind", "gentle",
+            "harsh", "cruel", "angry", "sad", "happy", "afraid", "fearful", "brave", "calm", "agitated",
+            "confused", "clear", "certain", "uncertain", "sure", "doubtful", "hope", "despair",
+            "joy", "sorrow", "love", "hate", "peace", "turmoil", "rest", "unrest", "sleep", "wake",
+            "dream", "nightmare", "memory", "forget", "remember", "past", "present", "future",
+            "time", "space", "eternity", "infinity", "limit", "boundary", "inside", "outside",
+            "above", "below", "here", "there", "where", "when", "why", "how", "what", "who",
+            "which", "whose", "whom", "myself", "yourself", "himself", "herself", "itself",
+            "ourselves", "themselves", "all", "none", "some", "any", "many", "few", "more", "less",
+            "most", "least", "much", "little", "big", "small", "large", "tiny", "huge", "vast",
+            "narrow", "wide", "long", "short", "tall", "deep", "shallow", "heavy", "light", "strong",
+            "weak", "hard", "soft", "rough", "smooth", "wet", "dry", "hot", "cold", "warm", "cool",
+            "bright", "dark", "light", "dim", "visible", "invisible", "clear", "cloudy", "foggy",
+            "misty", "rainy", "snowy", "windy", "stormy", "sunny", "moonlit", "starry"
+        ];
+
+         const influencedWordList = [
+             "danger", "help", "leave", "get out", "watch", "listen", "here", "now",
+             "warning", "fear", "angry", "sad", "pain", "lost", "taken", "trapped",
+             "stop", "go", "run", "behind", "under", "above", "death", "presence",
+             "cold", "dark", "attack", "evil", "devil", "demon", "killed", "murder",
+             "suicide", "blood", "bones", "cries", "screams", "moans", "whispers",
+             "follow", "find", "us", "me", "him", "her", "they", "it"
+         ];
+        // --- End Word Lists ---
+
+        function getRandomWord(useInfluenced = false) {
+            const list = useInfluenced ? influencedWordList : wordList;
+            const randomIndex = Math.floor(Math.random() * list.length);
+            return list[randomIndex];
+        }
+
+        // --- Web Audio API: Static Noise Generator ---
+        function initAudioContext() {
+            try {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                 // Create the gain node for volume control
+                 staticGainNode = audioContext.createGain();
+                 staticGainNode.gain.value = STATIC_VOLUME; // Set desired volume
+                 staticGainNode.connect(audioContext.destination); // Connect gain to speakers
+
+                 createNoiseBuffer(); // Create the noise source buffer
+                console.log("AudioContext initialized with GainNode.");
+                 return true;
+            } catch (e) {
+                console.error('Web Audio API not supported:', e);
+                currentStatus.textContent = "Audio Not Supported";
+                toggleButton.disabled = true;
+                 return false;
+            }
+        }
+
+        function createNoiseBuffer() {
+             // Create a buffer long enough for the maximum possible static duration
+            const bufferSize = SAMPLE_RATE * MAX_STATIC_BUFFER_SEC;
+            noiseBuffer = audioContext.createBuffer(1, bufferSize, SAMPLE_RATE);
+            const output = noiseBuffer.getChannelData(0);
+
+            for (let i = 0; i < bufferSize; i++) {
+                output[i] = Math.random() * 2 - 1;
+            }
+             console.log("Noise buffer created.");
+        }
+
+        function startContinuousStatic() {
+             if (!audioContext || !noiseBuffer || !staticGainNode) {
+                 console.warn("Audio context, buffer, or gain node not ready for static.");
+                 return;
+             }
+
+            // Stop any existing noise source before starting a new one
+            if (noiseSource) {
+                try {
+                     noiseSource.stop();
+                     noiseSource.disconnect(); // Disconnect from the gain node
+                } catch (e) {
+                    console.warn("Error stopping previous noise source before starting continuous:", e);
+                }
+             }
+
+            noiseSource = audioContext.createBufferSource();
+            noiseSource.buffer = noiseBuffer;
+            noiseSource.loop = true; // Loop the buffer for continuous playback
+            noiseSource.connect(staticGainNode); // Connect noise source to the gain node
+            noiseSource.start(0); // Start playback immediately
+
+             console.log("Starting continuous static.");
+             currentStatus.textContent = "Static";
+             displayWord.textContent = "- - -"; // Clear word display when static starts
+        }
+
+
+        function stopStaticNoise() {
+            if (noiseSource) {
+                try {
+                     noiseSource.stop();
+                     noiseSource.disconnect(); // Disconnect from the gain node
+                } catch (e) {
+                    console.warn("Error stopping noise source:", e);
+                } finally {
+                    noiseSource = null;
+                     console.log("Static noise stopped.");
+                }
+            }
+        }
+        // --- End Web Audio API ---
+
+
+        function speakWord(word) {
+             return new Promise(resolve => {
+                 if ('speechSynthesis' in window) {
+                     const utterance = new SpeechSynthesisUtterance(word);
+                     utterance.pitch = 0.5 + Math.random();
+                     utterance.rate = influenceActive ? (1.0 + Math.random() * 0.7) : (0.8 + Math.random() * 0.5);
+
+                     window.speechSynthesis.cancel(); // Stop any ongoing speech
+                     window.speechSynthesis.speak(utterance);
+
+                     utterance.onstart = () => {
+                         displayWord.textContent = word.toUpperCase();
+                         currentStatus.textContent = "Speaking";
+                         stopStaticNoise(); // Stop static right as the word starts
+                     };
+
+                     utterance.onend = () => {
+                         resolve(); // Resolve the promise when speaking finishes
+                     };
+
+                     utterance.onerror = (event) => {
+                        console.error('SpeechSynthesisUtterance error:', event.error);
+                         currentStatus.textContent = `Speech Error: ${event.error}`;
+                         resolve(); // Resolve even on error to continue the cycle
+                     };
+
+                 } else {
+                     displayWord.textContent = "TTS Not Supported";
+                     currentStatus.textContent = "TTS Error";
+                     console.error("Text-to-speech not supported in this browser.");
+                     stopSpiritBox();
+                     resolve();
+                 }
+             });
+        }
+
+        async function startSpiritCycle() {
+            if (!isRunning) {
+                 displayWord.textContent = "- - -";
+                 currentStatus.textContent = "Idle";
+                 sensorStatus.textContent = "Sensor: Stopped";
+                 return;
+             }
+
+            // 1. Speak a word
+            const word = getRandomWord(influenceActive);
+            await speakWord(word);
+
+            // 2. Calculate the duration for the static gap (shorter but more random)
+            // Gap is the time *between* words, filled with static
+             const minGap = influenceActive ? 300 : 500; // Min gap 0.3s (infl) / 0.5s (normal)
+             const maxGap = influenceActive ? 1500 : 3000; // Max gap 1.5s (infl) / 3s (normal)
+             const gapDuration = minGap + Math.random() * (maxGap - minGap);
+
+            // 3. Start continuous static noise for the duration of the gap
+            startContinuousStatic();
+
+            // 4. Set a timeout to trigger the next word cycle after the gap
+            spiritBoxTimeout = setTimeout(() => {
+                 // Static is stopped inside speakWord onstart
+                startSpiritCycle(); // Start the loop after the gap duration
+            }, gapDuration);
+
+        }
+
+
+        async function startSpiritBox() {
+            if (isRunning) return;
+            isRunning = true;
+            toggleButton.textContent = 'Stop Box';
+            displayWord.textContent = "- - -";
+            currentStatus.textContent = "Starting...";
+
+             // Initialize AudioContext and GainNode if not already done
+             if (!audioContext) {
+                 if (!initAudioContext()) {
+                     stopSpiritBox();
+                     return;
+                 }
+             } else {
+                 // If context exists but buffer or gain node were lost (e.g., tab inactive)
+                 if (!noiseBuffer) createNoiseBuffer();
+                 if (!staticGainNode) { // Recreate gain node if needed
+                     staticGainNode = audioContext.createGain();
+                     staticGainNode.gain.value = STATIC_VOLUME;
+                     staticGainNode.connect(audioContext.destination);
+                 }
+             }
+
+
+            // If sensor data is available, attempt to start sensor monitoring
+            if (sensorDataAvailable) {
+                 startSensorMonitoring();
+                 sensorStatus.textContent = "Sensor: Monitoring...";
+            } else {
+                 sensorStatus.textContent = "Sensor: N/A (No Permission or Support)";
+            }
+
+            // Start the first cycle with an initial static burst before the first word
+            const initialMinGap = sensorDataAvailable && influenceActive ? 500 : 1000; // Shorter initial gap if influenced
+            const initialMaxGap = sensorDataAvailable && influenceActive ? 2000 : 3000;
+            const initialGapDuration = initialMinGap + Math.random() * (initialMaxGap - initialMinGap);
+
+            startContinuousStatic();
+            spiritBoxTimeout = setTimeout(() => {
+                 // Static is stopped onstart of the first word
+                startSpiritCycle(); // Start the main loop after the initial static burst
+            }, initialGapDuration);
+
+        }
+
+        function stopSpiritBox() {
+            isRunning = false;
+            toggleButton.textContent = 'Start Box';
+            clearTimeout(spiritBoxTimeout);
+            window.speechSynthesis.cancel();
+            stopStaticNoise();
+             displayWord.textContent = "- - -";
+             currentStatus.textContent = "Idle";
+             sensorStatus.textContent = "Sensor: Stopped";
+
+             stopSensorMonitoring();
+
+             clearTimeout(influenceTimeout);
+             influenceActive = false;
+        }
+
+        toggleButton.addEventListener('click', () => {
+            if (isRunning) {
+                stopSpiritBox();
+            } else {
+                 if (!sensorDataAvailable && ('DeviceOrientationEvent' in window || 'DeviceMotionEvent' in window)) {
+                     requestSensorPermission().then(granted => {
+                         if (granted) {
+                             sensorDataAvailable = true;
+                             permissionPrompt.style.display = 'none';
+                             startSpiritBox();
+                         } else {
+                             sensorDataAvailable = false;
+                             permissionPrompt.style.display = 'none';
+                             sensorStatus.textContent = "Sensor: Permission Denied";
+                             startSpiritBox();
+                         }
+                     }).catch(error => {
+                         console.error("Error requesting sensor permission:", error);
+                         sensorDataAvailable = false;
+                         permissionPrompt.style.display = 'none';
+                         sensorStatus.textContent = "Sensor: Permission Error";
+                         startSpiritBox();
+                     });
+                 } else {
+                     startSpiritBox();
+                 }
+            }
+        });
+
+        // --- Sensor Handling ---
+
+         async function requestSensorPermission() {
+             if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+                 try {
+                     const permissionState = await DeviceOrientationEvent.requestPermission();
+                     if (permissionState === 'granted') {
+                         console.log('Sensor permission granted');
+                         return true;
+                     } else {
+                         console.log('Sensor permission denied');
+                         return false;
+                     }
+                 } catch (error) {
+                     console.error('Error requesting sensor permission:', error);
+                     return false;
+                 }
+             } else {
+                 console.log('Sensor permission not required or not supported API');
+                 return true;
+             }
+         }
+
+        function handleDeviceOrientation(event) {
+            const currentAlpha = event.alpha;
+
+            if (lastAlpha !== null && event.absolute) {
+                let alphaChange = Math.abs(currentAlpha - lastAlpha);
+
+                if (alphaChange > 180) {
+                    alphaChange = 360 - alphaChange;
+                }
+
+                if (alphaChange > ALPHA_CHANGE_THRESHOLD) {
+                    console.log(`Significant alpha change detected: ${alphaChange.toFixed(2)} degrees`);
+                    activateInfluence();
+                }
+            }
+
+            lastAlpha = currentAlpha;
+             if (isRunning) {
+                 sensorStatus.textContent = `Sensor: Active (Alpha: ${currentAlpha !== null ? currentAlpha.toFixed(1) + '°' : 'N/A'}) ${influenceActive ? '(INFLUENCE)' : ''}`;
+             }
+        }
+
+        function startSensorMonitoring() {
+             if ('DeviceOrientationEvent' in window && window.DeviceOrientationEvent.prototype.addEventListener) {
+                window.addEventListener('deviceorientation', handleDeviceOrientation);
+                 sensorStatus.textContent = "Sensor: Monitoring...";
+                 console.log("Started sensor monitoring.");
+             } else {
+                 sensorDataAvailable = false;
+                 sensorStatus.textContent = "Sensor: Not Supported";
+                 console.warn("DeviceOrientationEvent not supported in this browser/device.");
+             }
+        }
+
+        function stopSensorMonitoring() {
+             if ('DeviceOrientationEvent' in window && window.DeviceOrientationEvent.prototype.removeEventListener) {
+                window.removeEventListener('deviceorientation', handleDeviceOrientation);
+                 console.log("Stopped sensor monitoring.");
+             }
+             lastAlpha = null;
+        }
+
+        function activateInfluence() {
+            if (influenceActive) {
+                 clearTimeout(influenceTimeout);
+            } else {
+                influenceActive = true;
+                console.log("Influence Activated!");
+            }
+
+            influenceTimeout = setTimeout(() => {
+                influenceActive = false;
+                console.log("Influence Deactivated.");
+                 if(isRunning) sensorStatus.textContent = `Sensor: Active (Alpha: ${lastAlpha !== null ? lastAlpha.toFixed(1) + '°' : 'N/A'})`;
+            }, INFLUENCE_DURATION);
+        }
+
+        // --- Initial Setup ---
+
+         let audioSupport = false;
+         if ('speechSynthesis' in window) {
+             if (window.AudioContext || window.webkitAudioContext) {
+                 audioSupport = true;
+                 currentStatus.textContent = "Ready";
+                 if (('DeviceOrientationEvent' in window || 'DeviceMotionEvent' in window)) {
+                     if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+                          permissionPrompt.style.display = 'block';
+                          sensorStatus.textContent = "Sensor: Permission Needed";
+                     } else {
+                         sensorDataAvailable = true;
+                         sensorStatus.textContent = "Sensor: Available (No Permission Needed)";
+                     }
+                 } else {
+                     sensorStatus.textContent = "Sensor: Not Supported";
+                 }
+
+             } else {
+                 displayWord.textContent = "Audio Not Supported";
+                 currentStatus.textContent = "Audio Error";
+                 toggleButton.disabled = true;
+                 sensorStatus.textContent = "Sensor: N/A (Audio Not Supported)";
+             }
+
+         } else {
+             displayWord.textContent = "TTS Not Supported";
+             currentStatus.textContent = "TTS Error";
+             toggleButton.disabled = true;
+             sensorStatus.textContent = "Sensor: N/A (TTS Not Supported)";
+         }
+
+
+    </script>
+
+</body>
+</html>
